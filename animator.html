@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SeenScenes</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:       #0d0f14;
+  --surface:  #13161e;
+  --panel:    #1a1e2a;
+  --border:   #252a38;
+  --accent:   #6c8eff;
+  --accent2:  #ff7eb3;
+  --accent3:  #5fffa6;
+  --accent4:  #ffd97d;
+  --text:     #e2e8f8;
+  --muted:    #5a6380;
+  --sky-top:  #1a2744;
+  --sky-bot:  #2d4a7a;
+  --ground:   #1e3a1e;
+  --grass:    #2d5a2d;
+  --mono: 'DM Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr 340px;
+  grid-template-areas:
+    "header header"
+    "stage  sidebar"
+    "controls controls";
+}
+
+/* ── Header ────────────────────────────── */
+header {
+  grid-area: header;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: var(--surface);
+}
+
+header h1 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.scene-badge {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-left: auto;
+}
+
+.header-chars {
+  display: flex;
+  gap: 6px;
+}
+
+.char-pill {
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  animation: fadeIn 0.4s ease;
+}
+
+/* ── Stage ─────────────────────────────── */
+#stage {
+  grid-area: stage;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bot) 55%,
+                            var(--ground) 55%, var(--grass) 100%);
+  min-height: 420px;
+}
+
+/* Stars */
+#stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255,255,255,0.5) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255,255,255,0.3) 1px, transparent 1px);
+  background-size: 180px 120px, 240px 160px, 300px 200px;
+  background-position: 20px 10px, 80px 40px, 140px 5px;
+  pointer-events: none;
+  opacity: 0.6;
+  height: 55%;
+}
+
+/* Ground line */
+#stage::after {
+  content: '';
+  position: absolute;
+  bottom: 45%;
+  left: 0; right: 0;
+  height: 2px;
+  background: rgba(255,255,255,0.06);
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.drop-hint svg { opacity: 0.3; }
+.drop-hint.hidden { opacity: 0; }
+
+#stage.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+/* ── Character sprites ──────────────────── */
+.char-el {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: left 0.5s cubic-bezier(.4,0,.2,1), top 0.5s cubic-bezier(.4,0,.2,1);
+  cursor: pointer;
+  z-index: 10;
+}
+
+.char-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  position: relative;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.char-el:hover .char-avatar { transform: scale(1.1); }
+
+.char-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--text);
+  background: rgba(13,15,20,0.85);
+  border: 1px solid var(--border);
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+
+/* Speaking animation */
+.char-el.speaking .char-avatar {
+  animation: talking 0.35s ease-in-out infinite alternate;
+  box-shadow: 0 0 0 3px var(--accent4), 0 8px 24px rgba(0,0,0,0.5);
+}
+
+@keyframes talking {
+  from { transform: translateY(0) scale(1); }
+  to   { transform: translateY(-8px) scale(1.05); }
+}
+
+/* Emote animations */
+.char-el.emote-happy .char-avatar   { animation: bounce-happy 0.4s ease infinite; }
+.char-el.emote-angry .char-avatar   { animation: shake 0.15s ease infinite; }
+.char-el.emote-scared .char-avatar  { animation: tremble 0.1s ease infinite; }
+.char-el.emote-wave .char-avatar    { animation: wave-rot 0.4s ease infinite alternate; }
+.char-el.emote-jump .char-avatar    { animation: jump-up 0.5s ease-in-out; }
+.char-el.emote-thinking .char-avatar{ animation: bob 1.2s ease-in-out infinite; }
+.char-el.emote-sad .char-avatar     { animation: droop 1s ease-in-out infinite; }
+
+@keyframes bounce-happy { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+@keyframes shake        { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@keyframes tremble      { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(2px) translateY(-2px); } }
+@keyframes wave-rot     { from { transform: rotate(-20deg); } to { transform: rotate(20deg); } }
+@keyframes jump-up      { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-28px) scale(1.1); } }
+@keyframes bob          { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes droop        { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(4px) rotate(-5deg); } }
+@keyframes fadeIn       { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp      { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Thought bubble */
+.thought-bubble {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.95);
+  color: #111;
+  padding: 8px 14px;
+  border-radius: 14px;
+  font-size: 0.75rem;
+  font-family: var(--sans);
+  white-space: nowrap;
+  max-width: 200px;
+  white-space: normal;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  animation: slideUp 0.25s ease;
+  z-index: 20;
+}
+.thought-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%; left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(255,255,255,0.95);
+}
+
+/* ── Dialogue box ───────────────────────── */
+#dialogue-area {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 14px 24px;
+  background: linear-gradient(transparent, rgba(13,15,20,0.95));
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#dialogue-speaker {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--accent2);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+#dialogue-text {
+  font-size: 0.95rem;
+  color: var(--text);
+  line-height: 1.5;
+  flex: 1;
+}
+
+/* ── Progress bar ──────────────────────── */
+#progress-track {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--border);
+}
+#progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  width: 0%;
+  transition: width 0.3s;
+}
+
+/* ── Sidebar ────────────────────────────── */
+#sidebar {
+  grid-area: sidebar;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 10px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: rgba(108,142,255,0.06);
+}
+
+.tab-pane { display: none; flex: 1; overflow-y: auto; padding: 14px; flex-direction: column; gap: 8px; }
+.tab-pane.active { display: flex; }
+
+/* Action log */
+.log-entry {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  animation: fadeIn 0.3s ease;
+  line-height: 1.5;
+}
+
+.log-entry.active-entry {
+  border-color: var(--accent);
+  background: rgba(108,142,255,0.1);
+}
+
+.log-icon { flex-shrink: 0; }
+.log-body { color: var(--muted); }
+.log-body strong { color: var(--text); }
+
+/* JSON viewer */
+#json-view {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+  flex: 1;
+}
+
+/* Compile panel */
+#compile-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+#script-input {
+  flex: 1;
+  min-height: 200px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 12px;
+  resize: vertical;
+  outline: none;
+  line-height: 1.7;
+}
+#script-input:focus { border-color: var(--accent); }
+
+#compile-log {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--accent3);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+
+.btn-compile {
+  background: linear-gradient(135deg, var(--accent3), #2dcc6a);
+  color: #0d1a11;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+}
+.btn-compile:hover { opacity: 0.9; transform: translateY(-1px); }
+
+/* ── Controls ────────────────────────────── */
+#controls {
+  grid-area: controls;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 9px 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--panel);
+  color: var(--text);
+  letter-spacing: 0.03em;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+.btn-play  { border-color: var(--accent3); color: var(--accent3); }
+.btn-play:hover  { background: rgba(95,255,166,0.08); border-color: var(--accent3); color: var(--accent3); }
+.btn-reset { border-color: var(--accent2); color: var(--accent2); }
+.btn-reset:hover { background: rgba(255,126,179,0.08); }
+.btn-load  { border-color: var(--accent); color: var(--accent); }
+.btn-load:hover { background: rgba(108,142,255,0.08); }
+
+.speed-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+#speed-val { color: var(--accent); min-width: 28px; }
+
+/* ── Colour palette for characters ──────── */
+.pal-0 { background: linear-gradient(135deg,#6c8eff,#a78bfa); }
+.pal-1 { background: linear-gradient(135deg,#ff7eb3,#fb923c); }
+.pal-2 { background: linear-gradient(135deg,#5fffa6,#14b8a6); }
+.pal-3 { background: linear-gradient(135deg,#ffd97d,#f97316); }
+.pal-4 { background: linear-gradient(135deg,#e879f9,#ec4899); }
+.pal-5 { background: linear-gradient(135deg,#60a5fa,#0ea5e9); }
+
+/* ── Scrollbar ───────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SeenScenes</h1>
+  <span style="font-family:var(--mono);font-size:0.7rem;color:var(--muted)">v2.0</span>
+  <div class="header-chars" id="headerChars"></div>
+  <span class="scene-badge" id="sceneBadge">no scene loaded</span>
+</header>
+
+<!-- Stage -->
+<div id="stage">
+  <div class="drop-hint" id="dropHint">
+    <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+    </svg>
+    <span>Drop .json here or use Load button</span>
+  </div>
+  <div id="dialogue-area">
+    <span id="dialogue-speaker"></span>
+    <span id="dialogue-text" style="color:var(--muted);font-style:italic">No story loaded</span>
+  </div>
+  <div id="progress-track"><div id="progress-fill"></div></div>
+</div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="sidebar-tab-bar">
+    <div class="sidebar-tab active" data-tab="log">LOG</div>
+    <div class="sidebar-tab" data-tab="json">JSON</div>
+    <div class="sidebar-tab" data-tab="compile">COMPILE</div>
+  </div>
+
+  <div class="tab-pane active" id="tab-log">
+    <!-- action entries injected here -->
+  </div>
+
+  <div class="tab-pane" id="tab-json">
+    <pre id="json-view">// Load a story to inspect the JSON</pre>
+  </div>
+
+  <div class="tab-pane" id="tab-compile" id="compile-panel">
+    <div id="compile-panel">
+      <div style="font-family:var(--mono);font-size:0.7rem;color:var(--muted);line-height:1.6">
+        Write a .story script below and compile it directly in the browser.<br><br>
+        <span style="color:var(--accent3)">Keywords:</span> SCENE, CHARACTER, ENTER, EXIT, SAY, MOVE, WAIT, EMOTE<br>
+        <span style="color:var(--accent3)">Control:</span> let, set, if/else, loop, repeat/until, task, do, return, print<br>
+        <span style="color:var(--accent3)">Emotions:</span> happy sad angry scared surprised thinking wave jump
+      </div>
+      <textarea id="script-input" spellcheck="false"># Example story script
+SCENE Forest
+CHARACTER Alice
+CHARACTER Bob
+
+ENTER Alice
+Alice SAY "Hello, is anyone there?"
+Alice MOVE RIGHT 2
+
+ENTER Bob
+Bob EMOTE wave
+Bob SAY "Alice! Over here!"
+Alice EMOTE happy
+
+WAIT 1
+
+let steps = 3
+loop 1:
+    Alice MOVE RIGHT steps
+
+Alice SAY "What a beautiful scene!"
+Bob SAY "Indeed. Shall we explore?"
+
+EXIT Alice
+EXIT Bob</textarea>
+      <button class="btn-compile" id="compileBtn">▶ Compile &amp; Run</button>
+      <pre id="compile-log">// Compiler output will appear here</pre>
+    </div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="btn btn-play"  id="playBtn"  disabled>▶ Play</button>
+  <button class="btn btn-reset" id="resetBtn" disabled>↺ Reset</button>
+  <button class="btn btn-load"  id="loadBtn">⇡ Load JSON</button>
+  <input type="file" id="fileInput" accept=".json" style="display:none">
+  <div class="speed-wrap">
+    <span>speed</span>
+    <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1">
+    <span id="speed-val">1.0×</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  IN-BROWSER COMPILER  (mirrors story_compiler.py phases)
+// ═══════════════════════════════════════════════════════════
+
+const TT = {
+  NUMBER:'NUMBER',STRING:'STRING',IDENT:'IDENT',
+  SCENE:'SCENE',CHARACTER:'CHARACTER',ENTER:'ENTER',EXIT:'EXIT',
+  SAY:'SAY',MOVE:'MOVE',WAIT:'WAIT',EMOTE:'EMOTE',
+  TASK:'TASK',DO:'DO',IF:'IF',ELSE:'ELSE',LOOP:'LOOP',
+  REPEAT:'REPEAT',RETURN:'RETURN',LET:'LET',SET:'SET',PRINT:'PRINT',
+  LEFT:'LEFT',RIGHT:'RIGHT',UP:'UP',DOWN:'DOWN',
+  PLUS:'+',MINUS:'-',STAR:'*',SLASH:'/',
+  EQ_EQ:'==',BANG_EQ:'!=',LT:'<',GT:'>',LT_EQ:'<=',GT_EQ:'>=',
+  AND:'and',OR:'or',NOT:'not',ASSIGN:'=',
+  COLON:':',NEWLINE:'NL',INDENT:'INDENT',DEDENT:'DEDENT',EOF:'EOF',
+};
+
+const KEYWORDS = {
+  SCENE:TT.SCENE,CHARACTER:TT.CHARACTER,ENTER:TT.ENTER,EXIT:TT.EXIT,
+  SAY:TT.SAY,MOVE:TT.MOVE,WAIT:TT.WAIT,EMOTE:TT.EMOTE,
+  task:TT.TASK,do:TT.DO,if:TT.IF,else:TT.ELSE,loop:TT.LOOP,
+  repeat:TT.REPEAT,return:TT.RETURN,let:TT.LET,set:TT.SET,print:TT.PRINT,
+  and:TT.AND,or:TT.OR,not:TT.NOT,
+  LEFT:TT.LEFT,RIGHT:TT.RIGHT,UP:TT.UP,DOWN:TT.DOWN,
+};
+
+// ── Lexer ─────────────────────────────────────────────────
+class Lexer {
+  constructor(src){ this.src=src; this.tokens=[]; this.indentStack=[0]; }
+
+  tokenize(){
+    for(const raw of this.src.split('\n')) this._scanLine(raw);
+    while(this.indentStack.length>1){ this.indentStack.pop(); this.tokens.push({t:TT.DEDENT}); }
+    this.tokens.push({t:TT.EOF});
+    return this.tokens;
+  }
+
+  _scanLine(raw){
+    const stripped = raw.trimEnd();
+    const content  = stripped.trimStart();
+    if(!content || content.startsWith('#')) return;
+
+    const indent = stripped.length - content.length;
+    const prev   = this.indentStack[this.indentStack.length-1];
+    if(indent > prev){ this.indentStack.push(indent); this.tokens.push({t:TT.INDENT}); }
+    else while(indent < this.indentStack[this.indentStack.length-1]){ this.indentStack.pop(); this.tokens.push({t:TT.DEDENT}); }
+
+    let i=0;
+    while(i<content.length){
+      const ch=content[i];
+      if(ch===' '||ch==='\t'){ i++; continue; }
+      if(ch==='#') break;
+      if(ch==='"'){
+        let j=i+1; while(j<content.length&&content[j]!=='"') j++;
+        this.tokens.push({t:TT.STRING,v:content.slice(i+1,j)}); i=j+1; continue;
+      }
+      if(/\d/.test(ch)||(ch==='-'&&i+1<content.length&&/\d/.test(content[i+1]))){
+        let j=i+(ch==='-'?1:0); while(j<content.length&&/[\d.]/.test(content[j])) j++;
+        this.tokens.push({t:TT.NUMBER,v:parseFloat(content.slice(i,j))}); i=j; continue;
+      }
+      if(/[a-zA-Z_]/.test(ch)){
+        let j=i; while(j<content.length&&/[\w]/.test(content[j])) j++;
+        const word=content.slice(i,j);
+        this.tokens.push({t:KEYWORDS[word]||TT.IDENT,v:word}); i=j; continue;
+      }
+      const two=content.slice(i,i+2);
+      if(two==='=='){ this.tokens.push({t:TT.EQ_EQ,v:'=='}); i+=2; continue; }
+      if(two==='!='){ this.tokens.push({t:TT.BANG_EQ,v:'!='}); i+=2; continue; }
+      if(two==='<='){ this.tokens.push({t:TT.LT_EQ,v:'<='}); i+=2; continue; }
+      if(two==='>='){ this.tokens.push({t:TT.GT_EQ,v:'>='}); i+=2; continue; }
+      const singles={'+':TT.PLUS,'-':TT.MINUS,'*':TT.STAR,'/':TT.SLASH,
+        '<':TT.LT,'>':TT.GT,'=':TT.ASSIGN,':':TT.COLON,'(':null,')':null,',':null};
+      if(ch in singles && singles[ch]){ this.tokens.push({t:singles[ch],v:ch}); i++; continue; }
+      i++;
+    }
+    this.tokens.push({t:TT.NEWLINE});
+  }
+}
+
+// ── Parser ────────────────────────────────────────────────
+class Parser {
+  constructor(tokens){ this.toks=tokens; this.pos=0; }
+  cur(){ return this.toks[this.pos]||{t:TT.EOF}; }
+  peek(n=1){ return this.toks[this.pos+n]||{t:TT.EOF}; }
+  adv(){ return this.toks[this.pos++]||{t:TT.EOF}; }
+  expect(t){ if(this.cur().t!==t) throw new Error(`Expected ${t} got ${this.cur().t} ('${this.cur().v}')`); return this.adv(); }
+  skipNL(){ while(this.cur().t===TT.NEWLINE) this.adv(); }
+  match(...ts){ return ts.includes(this.cur().t); }
+
+  parse(){
+    const body=[];
+    this.skipNL();
+    while(!this.match(TT.EOF)){ const s=this.parseStmt(); if(s) body.push(s); this.skipNL(); }
+    return {type:'Program',body};
+  }
+
+  parseBlock(){
+    const stmts=[];
+    this.expect(TT.INDENT); this.skipNL();
+    while(!this.match(TT.DEDENT,TT.EOF)){ const s=this.parseStmt(); if(s) stmts.push(s); this.skipNL(); }
+    if(this.match(TT.DEDENT)) this.adv();
+    return stmts;
+  }
+
+  parseStmt(){
+    this.skipNL();
+    const t=this.cur();
+    if(t.t===TT.NEWLINE){ this.adv(); return null; }
+    if(t.t===TT.SCENE){ this.adv(); const n=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Scene',name:n}; }
+    if(t.t===TT.CHARACTER){ this.adv(); const n=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Character',name:n}; }
+    if(t.t===TT.TASK){ this.adv(); const n=this.expect(TT.IDENT).v; this.expect(TT.COLON); this._endStmt(); return {type:'Task',name:n,body:this.parseBlock()}; }
+    if(t.t===TT.ENTER){ this.adv(); const n=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Enter',char:n}; }
+    if(t.t===TT.EXIT){ this.adv(); const n=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Exit',char:n}; }
+    if(t.t===TT.WAIT){ this.adv(); const d=this.parseExpr(); this._endStmt(); return {type:'Wait',dur:d}; }
+    if(t.t===TT.DO){ this.adv(); const n=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Do',task:n}; }
+    if(t.t===TT.LET){ this.adv(); const n=this.expect(TT.IDENT).v; this.expect(TT.ASSIGN); const v=this.parseExpr(); this._endStmt(); return {type:'Let',name:n,value:v}; }
+    if(t.t===TT.SET){ this.adv(); const n=this.expect(TT.IDENT).v; this.expect(TT.ASSIGN); const v=this.parseExpr(); this._endStmt(); return {type:'Set',name:n,value:v}; }
+    if(t.t===TT.PRINT){ this.adv(); const v=this.parseExpr(); this._endStmt(); return {type:'Print',value:v}; }
+    if(t.t===TT.IF){
+      this.adv(); const cond=this.parseExpr(); this.expect(TT.COLON); this._endStmt();
+      const then_=this.parseBlock(); let else_=[];
+      this.skipNL(); if(this.match(TT.ELSE)){ this.adv(); this.expect(TT.COLON); this._endStmt(); else_=this.parseBlock(); }
+      return {type:'If',cond,then:then_,else:else_};
+    }
+    if(t.t===TT.LOOP){ this.adv(); const c=this.parseExpr(); this.expect(TT.COLON); this._endStmt(); return {type:'Loop',count:c,body:this.parseBlock()}; }
+    if(t.t===TT.REPEAT){
+      this.adv(); this.expect(TT.COLON); this._endStmt();
+      const body=this.parseBlock(); this.skipNL();
+      if(this.cur().t===TT.IDENT&&this.cur().v==='until'){ this.adv(); const cond=this.parseExpr(); this._endStmt(); return {type:'Repeat',body,cond}; }
+      return {type:'Repeat',body,cond:{type:'Lit',v:false}};
+    }
+    if(t.t===TT.RETURN){ this.adv(); const v=this.parseExpr(); this._endStmt(); return {type:'Return',value:v}; }
+    if(t.t===TT.IDENT && this.peek().t===TT.SAY){
+      const c=this.adv().v; this.adv(); const txt=this.expect(TT.STRING).v; this._endStmt(); return {type:'Say',char:c,text:txt}; }
+    if(t.t===TT.IDENT && this.peek().t===TT.MOVE){
+      const c=this.adv().v; this.adv();
+      const dir=this.adv(); const steps=this.parseExpr(); this._endStmt();
+      return {type:'Move',char:c,dir:dir.v,steps}; }
+    if(t.t===TT.IDENT && this.peek().t===TT.EMOTE){
+      const c=this.adv().v; this.adv(); const em=this.expect(TT.IDENT).v; this._endStmt(); return {type:'Emote',char:c,emotion:em}; }
+    throw new Error(`Unexpected token: ${t.t} ('${t.v}')`);
+  }
+
+  // Pratt expression parser
+  PREC={[TT.OR]:1,[TT.AND]:2,[TT.EQ_EQ]:3,[TT.BANG_EQ]:3,[TT.LT]:4,[TT.GT]:4,[TT.LT_EQ]:4,[TT.GT_EQ]:4,[TT.PLUS]:5,[TT.MINUS]:5,[TT.STAR]:6,[TT.SLASH]:6};
+  parseExpr(min=0){
+    let left=this.parseUnary();
+    while(this.PREC[this.cur().t]>min){
+      const op=this.adv(); left={type:'BinOp',op:op.v||op.t,left,right:this.parseExpr(this.PREC[op.t])};
+    }
+    return left;
+  }
+  parseUnary(){
+    if(this.match(TT.NOT,TT.MINUS)){ const op=this.adv(); return {type:'Unary',op:op.v||op.t,val:this.parseUnary()}; }
+    return this.parsePrimary();
+  }
+  parsePrimary(){
+    const t=this.cur();
+    if(t.t===TT.NUMBER){ this.adv(); return {type:'Lit',v:t.v}; }
+    if(t.t===TT.STRING){ this.adv(); return {type:'Lit',v:t.v}; }
+    if(t.t===TT.IDENT){ this.adv(); return {type:'Var',name:t.v}; }
+    throw new Error(`Expected expression, got ${t.t}`);
+  }
+  _endStmt(){ while(this.cur().t===TT.NEWLINE) this.adv(); }
+}
+
+// ── Semantic Analyser ─────────────────────────────────────
+class Semantic {
+  constructor(){ this.chars={}; this.vars={}; this.tasks=new Set(); this.warnings=[]; }
+  analyse(program){
+    for(const n of program.body) if(n.type==='Task') this.tasks.add(n.name);
+    for(const n of program.body) this._visit(n);
+  }
+  _visit(n){
+    if(!n) return;
+    const fn=this['_v'+n.type]; if(fn) fn.call(this,n); else this._visitChildren(n);
+  }
+  _visitChildren(n){ for(const v of Object.values(n)) if(v&&typeof v==='object') { if(Array.isArray(v)) v.forEach(c=>this._visit(c)); else if(v.type) this._visit(v); } }
+  _vScene(n){ /* ok */ }
+  _vCharacter(n){ if(this.chars[n.name]) throw new Error(`Character '${n.name}' already declared`); this.chars[n.name]={on:false}; }
+  _vTask(n){ for(const s of n.body) this._visit(s); }
+  _vEnter(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); this.chars[n.char].on=true; }
+  _vExit(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) this.warnings.push(`'${n.char}' exits but wasn't on stage`); this.chars[n.char].on=false; }
+  _vSay(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) throw new Error(`'${n.char}' speaks but hasn't entered`); }
+  _vMove(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) throw new Error(`'${n.char}' moves but hasn't entered`); }
+  _vEmote(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); }
+  _vLet(n){ if(this.vars[n.name]) throw new Error(`Variable '${n.name}' already declared`); this.vars[n.name]=true; }
+  _vSet(n){ if(!this.vars[n.name]) throw new Error(`Variable '${n.name}' not declared (use let)`); }
+  _vDo(n){ if(!this.tasks.has(n.task)) throw new Error(`Undefined task '${n.task}'`); }
+  _vIf(n){ this._visit(n.cond); n.then.forEach(s=>this._visit(s)); n.else.forEach(s=>this._visit(s)); }
+  _vLoop(n){ n.body.forEach(s=>this._visit(s)); }
+  _vRepeat(n){ n.body.forEach(s=>this._visit(s)); }
+  _vPrint(){}; _vReturn(){}; _vWait(){};
+}
+
+// ── IR Generator ──────────────────────────────────────────
+class IRGen {
+  constructor(){ this.instrs=[]; this._t=0; this._l=0; }
+  tmp(){ return `_t${++this._t}`; }
+  lbl(){ return `L${++this._l}`; }
+  emit(op,dst,src1,src2){ this.instrs.push({op,dst,src1,src2}); }
+
+  generate(program){
+    const tasks=program.body.filter(n=>n.type==='Task');
+    const rest =program.body.filter(n=>n.type!=='Task');
+    for(const t of tasks) this._lowerTask(t);
+    this.emit('SECTION',null,'main');
+    for(const n of rest) this._lower(n);
+    this.emit('HALT');
+    return this.instrs;
+  }
+
+  _lower(n){
+    const fn=this['_l'+n.type]; if(fn) fn.call(this,n); else throw new Error(`No IR lowering for ${n.type}`);
+  }
+  _lScene(n){ this.emit('SET_SCENE',null,n.name); }
+  _lCharacter(n){ this.emit('DECL_CHAR',null,n.name); }
+  _lTask(n){ this._lowerTask(n); }
+  _lowerTask(n){ this.emit('FUNC_BEGIN',null,n.name); for(const s of n.body) this._lower(s); this.emit('FUNC_END',null,n.name); }
+  _lEnter(n){ this.emit('ENTER',null,n.char); }
+  _lExit(n){ this.emit('EXIT',null,n.char); }
+  _lSay(n){ this.emit('SAY',null,n.char,n.text); }
+  _lEmote(n){ this.emit('EMOTE',null,n.char,n.emotion); }
+  _lMove(n){ const s=this._lExpr(n.steps); this.emit('MOVE',s,n.char,n.dir); }
+  _lWait(n){ const d=this._lExpr(n.dur); this.emit('WAIT',null,d); }
+  _lDo(n){ this.emit('CALL',null,n.task); }
+  _lLet(n){ const v=this._lExpr(n.value); this.emit('STORE',n.name,v); }
+  _lSet(n){ const v=this._lExpr(n.value); this.emit('STORE',n.name,v); }
+  _lPrint(n){ const v=this._lExpr(n.value); this.emit('PRINT',null,v); }
+  _lReturn(n){ const v=this._lExpr(n.value); this.emit('RETURN',null,v); }
+  _lIf(n){
+    const c=this._lExpr(n.cond); const el=this.lbl(); const end=this.lbl();
+    this.emit('JMP_FALSE',el,c); for(const s of n.then) this._lower(s);
+    this.emit('JMP',end); this.emit('LABEL',null,el); for(const s of n.else) this._lower(s); this.emit('LABEL',null,end);
+  }
+  _lLoop(n){
+    const c=this._lExpr(n.count); const iv=this.tmp(); const lbl=this.lbl(); const end=this.lbl();
+    this.emit('STORE',iv,0); this.emit('LABEL',null,lbl);
+    const cmp=this.tmp(); this.emit('BINOP',cmp,iv,[c,'<']); this.emit('JMP_FALSE',end,cmp);
+    for(const s of n.body) this._lower(s);
+    const inc=this.tmp(); this.emit('BINOP',inc,iv,[1,'+']); this.emit('STORE',iv,inc); this.emit('JMP',lbl); this.emit('LABEL',null,end);
+  }
+  _lRepeat(n){
+    const lbl=this.lbl(); this.emit('LABEL',null,lbl);
+    for(const s of n.body) this._lower(s);
+    const c=this._lExpr(n.cond); this.emit('JMP_FALSE',lbl,c);
+  }
+  _lExpr(e){
+    if(e.type==='Lit'){ const t=this.tmp(); this.emit('LOAD_CONST',t,e.v); return t; }
+    if(e.type==='Var'){ const t=this.tmp(); this.emit('LOAD_VAR',t,e.name); return t; }
+    if(e.type==='BinOp'){ const l=this._lExpr(e.left); const r=this._lExpr(e.right); const t=this.tmp(); this.emit('BINOP',t,l,[r,e.op]); return t; }
+    if(e.type==='Unary'){ const v=this._lExpr(e.val); const t=this.tmp(); this.emit('UNOP',t,v,e.op); return t; }
+    const t=this.tmp(); this.emit('LOAD_CONST',t,0); return t;
+  }
+}
+
+// ── Optimizer ─────────────────────────────────────────────
+class Optimizer {
+  run(instrs){
+    instrs=this._constFold(instrs);
+    instrs=this._deadStore(instrs);
+    return instrs;
+  }
+  _constFold(instrs){
+    const cm={}; const out=[];
+    for(const i of instrs){
+      if(i.op==='LOAD_CONST'){ cm[i.dst]=i.src1; out.push(i); }
+      else if(i.op==='BINOP'){
+        const [rTmp,op]=i.src2; const lv=cm[i.src1]; const rv=cm[rTmp];
+        if(typeof lv==='number'&&typeof rv==='number'){
+          const f=this._fold(lv,rv,op);
+          if(f!==null){ cm[i.dst]=f; out.push({op:'LOAD_CONST',dst:i.dst,src1:f}); continue; }
+        }
+        out.push(i);
+      } else out.push(i);
+    }
+    return out;
+  }
+  _fold(a,b,op){
+    if(op==='+') return a+b; if(op==='-') return a-b;
+    if(op==='*') return a*b; if(op==='/'&&b!==0) return a/b;
+    if(op==='<') return a<b?1:0; if(op==='>') return a>b?1:0;
+    if(op==='==') return a===b?1:0; return null;
+  }
+  _deadStore(instrs){
+    const used=new Set();
+    for(const i of instrs){
+      if(i.src1&&typeof i.src1==='string'&&i.src1.startsWith('_t')) used.add(i.src1);
+      if(Array.isArray(i.src2)&&typeof i.src2[0]==='string'&&i.src2[0].startsWith('_t')) used.add(i.src2[0]);
+      if(i.dst&&i.op==='WAIT'&&typeof i.src1==='string') used.add(i.src1);
+      if(i.dst&&i.op==='MOVE') used.add(i.dst);
+    }
+    return instrs.filter(i=>!(i.dst&&i.dst.startsWith('_t')&&!used.has(i.dst)));
+  }
+}
+
+// ── Code Generator (IR → actions) ────────────────────────
+class CodeGen {
+  constructor(){ this.actions=[]; this.env={}; this.scene=null; this.chars={}; this.tasks={}; this.retVal=null; }
+  execute(instrs){
+    let i=0;
+    while(i<instrs.length){
+      const ins=instrs[i];
+      if(ins.op==='FUNC_BEGIN'){
+        const nm=ins.src1; const body=[];
+        i++;
+        while(i<instrs.length&&!(instrs[i].op==='FUNC_END'&&instrs[i].src1===nm)){ body.push(instrs[i]); i++; }
+        this.tasks[nm]=body;
+      }
+      i++;
+    }
+    const main=[];
+    let inMain=false;
+    for(const ins of instrs){
+      if(ins.op==='SECTION'&&ins.src1==='main'){ inMain=true; continue; }
+      if(inMain&&ins.op!=='FUNC_BEGIN'&&ins.op!=='FUNC_END') main.push(ins);
+    }
+    this._run(main);
+    return {scene:this.scene,characters:Object.keys(this.chars),actions:this.actions};
+  }
+  _run(instrs){
+    const lblMap={};
+    instrs.forEach((ins,idx)=>{ if(ins.op==='LABEL') lblMap[ins.dst]=idx; });
+    let ip=0;
+    while(ip<instrs.length){
+      const ins=instrs[ip++];
+      if(ins.op==='HALT'||ins.op==='FUNC_BEGIN'||ins.op==='FUNC_END') break;
+      if(ins.op==='SECTION'||ins.op==='LABEL') continue;
+      if(ins.op==='SET_SCENE'){ this.scene=ins.src1; }
+      else if(ins.op==='DECL_CHAR'){ this.chars[ins.src1]=false; }
+      else if(ins.op==='ENTER'){ this.chars[ins.src1]=true; this.actions.push({type:'enter',who:ins.src1}); }
+      else if(ins.op==='EXIT'){ this.chars[ins.src1]=false; this.actions.push({type:'exit',who:ins.src1}); }
+      else if(ins.op==='SAY'){ this.actions.push({type:'say',who:ins.src1,text:ins.src2}); }
+      else if(ins.op==='EMOTE'){ this.actions.push({type:'emote',who:ins.src1,emotion:ins.src2}); }
+      else if(ins.op==='MOVE'){ const s=Math.round(this._res(ins.dst)); this.actions.push({type:'move',who:ins.src1,dir:ins.src2,steps:s}); }
+      else if(ins.op==='WAIT'){ this.actions.push({type:'wait',duration:this._res(ins.src1)}); }
+      else if(ins.op==='LOAD_CONST'){ this.env[ins.dst]=ins.src1; }
+      else if(ins.op==='LOAD_VAR'){ this.env[ins.dst]=this.env[ins.src1]??0; }
+      else if(ins.op==='STORE'){ this.env[ins.dst]=typeof ins.src1==='number'?ins.src1:this._res(ins.src1); }
+      else if(ins.op==='BINOP'){ const [rT,op]=ins.src2; this.env[ins.dst]=this._applyOp(this._res(ins.src1),this._res(rT),op); }
+      else if(ins.op==='UNOP'){ const v=this._res(ins.src1); this.env[ins.dst]=ins.src2==='-'?-v:!v; }
+      else if(ins.op==='PRINT'){ console.log('PRINT:', this._res(ins.src1)); }
+      else if(ins.op==='JMP'){ ip=lblMap[ins.dst]; }
+      else if(ins.op==='JMP_FALSE'){ if(!this._res(ins.src1)) ip=lblMap[ins.dst]; }
+      else if(ins.op==='CALL'){ this._callTask(ins.src1); }
+      else if(ins.op==='RETURN'){ this.retVal=this._res(ins.src1); break; }
+    }
+  }
+  _callTask(name){ if(!this.tasks[name]) throw new Error(`Task '${name}' not found`); const s=this.retVal; this.retVal=null; this._run(this.tasks[name]); this.retVal=s; }
+  _res(k){ if(typeof k==='number') return k; if(typeof k==='string'&&k in this.env) return this.env[k]; return k||0; }
+  _applyOp(a,b,op){
+    if(op==='+') return a+b; if(op==='-') return a-b; if(op==='*') return a*b; if(op==='/'&&b!==0) return a/b;
+    if(op==='==') return a===b?1:0; if(op==='!=') return a!==b?1:0;
+    if(op==='<') return a<b?1:0; if(op==='>') return a>b?1:0;
+    if(op==='<=') return a<=b?1:0; if(op==='>=') return a>=b?1:0;
+    if(op==='and') return (a&&b)?1:0; if(op==='or') return (a||b)?1:0;
+    return 0;
+  }
+}
+
+function compileScript(src){
+  const log=[];
+  try {
+    log.push('▶ Phase 1: Lexical Analysis');
+    const lexer=new Lexer(src);
+    const tokens=lexer.tokenize();
+    log.push(`   ${tokens.length} tokens produced ✓`);
+
+    log.push('▶ Phase 2-3: Parsing');
+    const parser=new Parser(tokens);
+    const ast=parser.parse();
+    log.push(`   AST: ${ast.body.length} top-level nodes ✓`);
+
+    log.push('▶ Phase 4: Semantic Analysis');
+    const sem=new Semantic();
+    sem.analyse(ast);
+    if(sem.warnings.length) sem.warnings.forEach(w=>log.push(`   ⚠ ${w}`));
+    log.push(`   ${Object.keys(sem.chars).length} chars, ${sem.tasks.size} tasks ✓`);
+
+    log.push('▶ Phase 5: IR Generation');
+    const irgen=new IRGen();
+    const ir=irgen.generate(ast);
+    log.push(`   ${ir.length} IR instructions ✓`);
+
+    log.push('▶ Phase 6: Optimization');
+    const opt=new Optimizer();
+    const irOpt=opt.run(ir);
+    log.push(`   ${ir.length} → ${irOpt.length} instructions ✓`);
+
+    log.push('▶ Phase 7: Code Generation');
+    const cg=new CodeGen();
+    const output=cg.execute(irOpt);
+    log.push(`   ${output.actions.length} animation actions generated ✓`);
+    log.push('✅ Compilation successful!');
+    return {ok:true,output,log};
+  } catch(e) {
+    log.push(`❌ ${e.message}`);
+    return {ok:false,log};
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ANIMATOR
+// ═══════════════════════════════════════════════════════════
+
+const PALETTES = ['pal-0','pal-1','pal-2','pal-3','pal-4','pal-5'];
+const EMOJIS = {
+  alice:'👧',bob:'👦',charlie:'🧔',diana:'👩',eve:'👵',frank:'👴',
+  default:'🧑',hero:'🦸',villain:'🦹',wizard:'🧙',knight:'⚔️',
+  dragon:'🐉',cat:'🐱',dog:'🐶',robot:'🤖',alien:'👾',
+};
+
+class Animator {
+  constructor(){
+    this.data=null; this.charEls={}; this.charState={}; this.actionIdx=0;
+    this.isPlaying=false; this.timer=null; this.speed=1;
+    this._bindUI();
+  }
+
+  _bindUI(){
+    document.getElementById('loadBtn').onclick=()=>document.getElementById('fileInput').click();
+    document.getElementById('fileInput').onchange=e=>{
+      const f=e.target.files[0]; if(f) this._readFile(f);
+    };
+    document.getElementById('playBtn').onclick=()=>this.play();
+    document.getElementById('resetBtn').onclick=()=>this.reset();
+    document.getElementById('speedSlider').oninput=e=>{
+      this.speed=parseFloat(e.target.value);
+      document.getElementById('speed-val').textContent=this.speed.toFixed(2).replace(/\.?0+$/,'')+'×';
+    };
+
+    // Drag & drop
+    const stage=document.getElementById('stage');
+    stage.ondragover=e=>{ e.preventDefault(); stage.classList.add('drag-over'); };
+    stage.ondragleave=()=>stage.classList.remove('drag-over');
+    stage.ondrop=e=>{ e.preventDefault(); stage.classList.remove('drag-over'); const f=e.dataTransfer.files[0]; if(f) this._readFile(f); };
+
+    // Tabs
+    document.querySelectorAll('.sidebar-tab').forEach(tab=>{
+      tab.onclick=()=>{
+        document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+      };
+    });
+
+    // Compile button
+    document.getElementById('compileBtn').onclick=()=>{
+      const src=document.getElementById('script-input').value;
+      const result=compileScript(src);
+      document.getElementById('compile-log').textContent=result.log.join('\n');
+      if(result.ok){ this.loadData(result.output); }
+    };
+  }
+
+  _readFile(file){
+    const reader=new FileReader();
+    reader.onload=e=>{ try{ this.loadData(JSON.parse(e.target.result)); } catch(err){ alert('Invalid JSON: '+err.message); } };
+    reader.readAsText(file);
+  }
+
+  loadData(data){
+    this.data=data;
+    document.getElementById('sceneBadge').textContent=`scene: ${data.scene||'unnamed'}`;
+    document.getElementById('json-view').textContent=JSON.stringify(data,null,2);
+    document.getElementById('dropHint').classList.add('hidden');
+    this._buildLog();
+    this._buildCharPills();
+    this._createCharacters();
+    this.reset();
+    document.getElementById('playBtn').disabled=false;
+    document.getElementById('resetBtn').disabled=false;
+  }
+
+  _buildLog(){
+    const container=document.getElementById('tab-log');
+    container.innerHTML='';
+    const ICONS={enter:'🚪',exit:'🚶',say:'💬',move:'🏃',wait:'⏸',emote:'🎭'};
+    (this.data.actions||[]).forEach((a,i)=>{
+      const el=document.createElement('div');
+      el.className='log-entry'; el.dataset.idx=i;
+      const icon=ICONS[a.type]||'●';
+      let body='';
+      if(a.type==='enter') body=`<strong>${a.who}</strong> enters`;
+      else if(a.type==='exit') body=`<strong>${a.who}</strong> exits`;
+      else if(a.type==='say') body=`<strong>${a.who}</strong>: "${a.text}"`;
+      else if(a.type==='move') body=`<strong>${a.who}</strong> → ${a.dir} ×${a.steps}`;
+      else if(a.type==='wait') body=`wait ${a.duration}s`;
+      else if(a.type==='emote') body=`<strong>${a.who}</strong> emotes <em>${a.emotion}</em>`;
+      el.innerHTML=`<span class="log-icon">${icon}</span><span class="log-body">${body}</span>`;
+      container.appendChild(el);
+    });
+  }
+
+  _buildCharPills(){
+    const container=document.getElementById('headerChars');
+    container.innerHTML='';
+    (this.data.characters||[]).forEach(name=>{
+      const p=document.createElement('span');
+      p.className='char-pill'; p.textContent=name;
+      container.appendChild(p);
+    });
+  }
+
+  _createCharacters(){
+    const stage=document.getElementById('stage');
+    // Remove old chars
+    stage.querySelectorAll('.char-el').forEach(el=>el.remove());
+    this.charEls={}; this.charState={};
+
+    const chars=this.data.characters||[];
+    const W=stage.offsetWidth||800;
+    const H=stage.offsetHeight||420;
+    const spacing=Math.min(140,W/(chars.length+1));
+
+    chars.forEach((name,i)=>{
+      const x=W/2+(i-chars.length/2+0.5)*spacing;
+      const y=H*0.45;
+
+      const el=document.createElement('div');
+      el.className='char-el';
+      el.style.left=x+'px'; el.style.top=y+'px';
+
+      const palCls=PALETTES[i%PALETTES.length];
+      const emoji=EMOJIS[name.toLowerCase()]||EMOJIS.default;
+      el.innerHTML=`<div class="char-avatar ${palCls}">${emoji}</div><div class="char-label">${name}</div>`;
+
+      stage.appendChild(el);
+      this.charEls[name]=el;
+      this.charState[name]={x,y,visible:false};
+    });
+  }
+
+  play(){
+    if(this.isPlaying) return;
+    this.isPlaying=true;
+    document.getElementById('playBtn').disabled=true;
+    this._tick();
+  }
+
+  reset(){
+    this.isPlaying=false; this.actionIdx=0;
+    clearTimeout(this.timer);
+    Object.values(this.charEls).forEach(el=>{
+      el.style.display='none';
+      el.className='char-el';
+      el.querySelectorAll('.thought-bubble').forEach(b=>b.remove());
+    });
+    if(this.data){
+      const stage=document.getElementById('stage');
+      const W=stage.offsetWidth||800; const H=stage.offsetHeight||420;
+      const chars=this.data.characters||[];
+      const spacing=Math.min(140,W/(chars.length+1));
+      chars.forEach((name,i)=>{
+        const x=W/2+(i-chars.length/2+0.5)*spacing;
+        const y=H*0.45;
+        const el=this.charEls[name]; if(!el) return;
+        el.style.left=x+'px'; el.style.top=y+'px';
+        this.charState[name]={x,y,visible:false};
+      });
+    }
+    this._setDialogue('','Ready to play!');
+    document.getElementById('progress-fill').style.width='0%';
+    document.getElementById('playBtn').disabled=false;
+    document.querySelectorAll('.log-entry').forEach(e=>e.classList.remove('active-entry'));
+  }
+
+  _tick(){
+    if(!this.isPlaying||this.actionIdx>=this.data.actions.length){
+      this.isPlaying=false;
+      document.getElementById('playBtn').disabled=false;
+      if(this.actionIdx>=this.data.actions.length) this._setDialogue('','🎬 The End');
+      return;
+    }
+    const action=this.data.actions[this.actionIdx];
+    const progress=((this.actionIdx+1)/this.data.actions.length)*100;
+    document.getElementById('progress-fill').style.width=progress+'%';
+
+    // Highlight log
+    document.querySelectorAll('.log-entry').forEach(e=>e.classList.remove('active-entry'));
+    const logEntry=document.querySelector(`.log-entry[data-idx="${this.actionIdx}"]`);
+    if(logEntry){ logEntry.classList.add('active-entry'); logEntry.scrollIntoView({block:'nearest',behavior:'smooth'}); }
+
+    this.actionIdx++;
+    const delay=this._dispatch(action)/this.speed;
+    this.timer=setTimeout(()=>this._tick(),delay);
+  }
+
+  _dispatch(a){
+    if(a.type==='enter') return this._doEnter(a);
+    if(a.type==='exit')  return this._doExit(a);
+    if(a.type==='say')   return this._doSay(a);
+    if(a.type==='move')  return this._doMove(a);
+    if(a.type==='wait')  return this._doWait(a);
+    if(a.type==='emote') return this._doEmote(a);
+    return 500;
+  }
+
+  _doEnter(a){
+    const el=this.charEls[a.who]; if(!el) return 600;
+    el.style.display='flex';
+    this.charState[a.who].visible=true;
+    this._setDialogue('','🚪 '+a.who+' enters');
+    return 800;
+  }
+
+  _doExit(a){
+    const el=this.charEls[a.who]; if(!el) return 600;
+    el.style.opacity='0'; el.style.transform='translateY(30px)';
+    setTimeout(()=>{ el.style.display='none'; el.style.opacity=''; el.style.transform=''; },450);
+    this.charState[a.who].visible=false;
+    this._setDialogue('','🚶 '+a.who+' exits');
+    return 700;
+  }
+
+  _doSay(a){
+    const el=this.charEls[a.who]; if(!el) return 2000;
+    el.classList.add('speaking');
+    this._setDialogue(a.who, a.text);
+    // Thought bubble
+    el.querySelectorAll('.thought-bubble').forEach(b=>b.remove());
+    const bub=document.createElement('div');
+    bub.className='thought-bubble'; bub.textContent=a.text;
+    el.querySelector('.char-avatar').appendChild(bub);
+    const dur=Math.max(1800,a.text.length*55)/this.speed;
+    setTimeout(()=>{ el.classList.remove('speaking'); bub.remove(); },dur);
+    return dur+200;
+  }
+
+  _doMove(a){
+    const el=this.charEls[a.who]; const st=this.charState[a.who]; if(!el||!st) return 600;
+    const step=44;
+    if(a.dir==='LEFT')  st.x-=step*a.steps;
+    if(a.dir==='RIGHT') st.x+=step*a.steps;
+    if(a.dir==='UP')    st.y-=step*a.steps;
+    if(a.dir==='DOWN')  st.y+=step*a.steps;
+    el.style.left=st.x+'px'; el.style.top=st.y+'px';
+    this._setDialogue('','🏃 '+a.who+' → '+a.dir+' ×'+a.steps);
+    return Math.max(500,a.steps*320);
+  }
+
+  _doWait(a){
+    this._setDialogue('','⏸ …');
+    return a.duration*1000;
+  }
+
+  _doEmote(a){
+    const el=this.charEls[a.who]; if(!el) return 1200;
+    // clear old emotes
+    el.className='char-el emote-'+a.emotion;
+    this._setDialogue('','🎭 '+a.who+' feels '+a.emotion);
+    const dur=1500;
+    setTimeout(()=>{ el.className='char-el'; },dur);
+    return dur+200;
+  }
+
+  _setDialogue(speaker, text){
+    document.getElementById('dialogue-speaker').textContent=speaker?(speaker+': '):'';
+    document.getElementById('dialogue-text').textContent=text;
+    document.getElementById('dialogue-text').style.fontStyle=text?'normal':'italic';
+    document.getElementById('dialogue-text').style.color=text?'var(--text)':'var(--muted)';
+  }
+}
+
+const animator=new Animator();
+</script>
+</body>
+</html>
