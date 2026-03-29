@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional, Dict
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║              STORY SCRIPT COMPILER  v2.0                        ║
+# ║              SEENSCENES  v0.5                        ║
 # ║   Full Pipeline: Lexer → Parser → Semantic → IR → Optimizer     ║
 # ║                  → Code Generator                               ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -1424,7 +1424,7 @@ class CodeGenerator:
 def compile_file(filepath: str, output_file: Optional[str] = None, verbose: bool = False):
     DIVIDER = "═" * 56
 
-    print(f"\n{'Story Script Compiler v2.0':^56}")
+    print(f"\n{'SeenScenes v0.5':^56}")
     print(DIVIDER)
 
     with open(filepath) as f:
@@ -1501,7 +1501,7 @@ def compile_file(filepath: str, output_file: Optional[str] = None, verbose: bool
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(description="Story Script Compiler v2.0")
+    ap = argparse.ArgumentParser(description="SeenScenes v0.5")
     ap.add_argument("script",  help="Path to .story script file")
     ap.add_argument("-o", "--output", help="Output JSON file", default=None)
     ap.add_argument("-v", "--verbose", action="store_true", help="Print tokens and IR")
