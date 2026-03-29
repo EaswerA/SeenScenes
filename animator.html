@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SeenScenes</title>
+<title>Story Animator v2</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap');
 
@@ -488,7 +488,7 @@ input[type=range]::-webkit-slider-thumb {
 <body>
 
 <header>
-  <h1>SeenScenes</h1>
+  <h1>⬡ Story Animator</h1>
   <span style="font-family:var(--mono);font-size:0.7rem;color:var(--muted)">v2.0</span>
   <div class="header-chars" id="headerChars"></div>
   <span class="scene-badge" id="sceneBadge">no scene loaded</span>
@@ -746,7 +746,7 @@ class Parser {
 
 // ── Semantic Analyser ─────────────────────────────────────
 class Semantic {
-  constructor(){ this.chars={}; this.vars={}; this.tasks=new Set(); this.warnings=[]; }
+  constructor(){ this.chars={}; this.vars={}; this.tasks=new Set(); this.warnings=[]; this.inTask=false; }
   analyse(program){
     for(const n of program.body) if(n.type==='Task') this.tasks.add(n.name);
     for(const n of program.body) this._visit(n);
@@ -758,18 +758,31 @@ class Semantic {
   _visitChildren(n){ for(const v of Object.values(n)) if(v&&typeof v==='object') { if(Array.isArray(v)) v.forEach(c=>this._visit(c)); else if(v.type) this._visit(v); } }
   _vScene(n){ /* ok */ }
   _vCharacter(n){ if(this.chars[n.name]) throw new Error(`Character '${n.name}' already declared`); this.chars[n.name]={on:false}; }
-  _vTask(n){ for(const s of n.body) this._visit(s); }
-  _vEnter(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); this.chars[n.char].on=true; }
-  _vExit(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) this.warnings.push(`'${n.char}' exits but wasn't on stage`); this.chars[n.char].on=false; }
-  _vSay(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) throw new Error(`'${n.char}' speaks but hasn't entered`); }
-  _vMove(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); if(!this.chars[n.char].on) throw new Error(`'${n.char}' moves but hasn't entered`); }
+  // Tasks run at call-time: skip on_stage enforcement inside task bodies.
+  _vTask(n){ const prev=this.inTask; this.inTask=true; for(const s of n.body) this._visit(s); this.inTask=prev; }
+  _vEnter(n){
+    if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`);
+    if(!this.inTask){ if(this.chars[n.char].on) this.warnings.push(`'${n.char}' already on stage`); this.chars[n.char].on=true; }
+  }
+  _vExit(n){
+    if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`);
+    if(!this.inTask){ if(!this.chars[n.char].on) this.warnings.push(`'${n.char}' exits but wasn't on stage`); this.chars[n.char].on=false; }
+  }
+  _vSay(n){
+    if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`);
+    if(!this.inTask && !this.chars[n.char].on) throw new Error(`'${n.char}' speaks but hasn't entered`);
+  }
+  _vMove(n){
+    if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`);
+    if(!this.inTask && !this.chars[n.char].on) throw new Error(`'${n.char}' moves but hasn't entered`);
+  }
   _vEmote(n){ if(!this.chars[n.char]) throw new Error(`Character '${n.char}' not declared`); }
   _vLet(n){ if(this.vars[n.name]) throw new Error(`Variable '${n.name}' already declared`); this.vars[n.name]=true; }
   _vSet(n){ if(!this.vars[n.name]) throw new Error(`Variable '${n.name}' not declared (use let)`); }
   _vDo(n){ if(!this.tasks.has(n.task)) throw new Error(`Undefined task '${n.task}'`); }
   _vIf(n){ this._visit(n.cond); n.then.forEach(s=>this._visit(s)); n.else.forEach(s=>this._visit(s)); }
-  _vLoop(n){ n.body.forEach(s=>this._visit(s)); }
-  _vRepeat(n){ n.body.forEach(s=>this._visit(s)); }
+  _vLoop(n){ this._visit(n.count); n.body.forEach(s=>this._visit(s)); }
+  _vRepeat(n){ n.body.forEach(s=>this._visit(s)); this._visit(n.cond); }
   _vPrint(){}; _vReturn(){}; _vWait(){};
 }
 
@@ -814,11 +827,23 @@ class IRGen {
     this.emit('JMP',end); this.emit('LABEL',null,el); for(const s of n.else) this._lower(s); this.emit('LABEL',null,end);
   }
   _lLoop(n){
-    const c=this._lExpr(n.count); const iv=this.tmp(); const lbl=this.lbl(); const end=this.lbl();
-    this.emit('STORE',iv,0); this.emit('LABEL',null,lbl);
-    const cmp=this.tmp(); this.emit('BINOP',cmp,iv,[c,'<']); this.emit('JMP_FALSE',end,cmp);
+    // Always LOAD_CONST for 0 and 1; bare JS number literals in STORE/BINOP
+    // confuse DSE (which only tracks _t-prefixed names) and _res().
+    const c=this._lExpr(n.count);
+    const iv=this.tmp(), zeroT=this.tmp(), lbl=this.lbl(), end=this.lbl();
+    this.emit('LOAD_CONST',zeroT,0);
+    this.emit('STORE',iv,zeroT);
+    this.emit('LABEL',null,lbl);
+    const cmp=this.tmp();
+    this.emit('BINOP',cmp,iv,[c,'<']);
+    this.emit('JMP_FALSE',end,cmp);
     for(const s of n.body) this._lower(s);
-    const inc=this.tmp(); this.emit('BINOP',inc,iv,[1,'+']); this.emit('STORE',iv,inc); this.emit('JMP',lbl); this.emit('LABEL',null,end);
+    const oneT=this.tmp(), inc=this.tmp();
+    this.emit('LOAD_CONST',oneT,1);
+    this.emit('BINOP',inc,iv,[oneT,'+']);
+    this.emit('STORE',iv,inc);
+    this.emit('JMP',lbl);
+    this.emit('LABEL',null,end);
   }
   _lRepeat(n){
     const lbl=this.lbl(); this.emit('LABEL',null,lbl);
@@ -865,12 +890,21 @@ class Optimizer {
   _deadStore(instrs){
     const used=new Set();
     for(const i of instrs){
-      if(i.src1&&typeof i.src1==='string'&&i.src1.startsWith('_t')) used.add(i.src1);
+      // Track all tmp names that appear as operands (sources).
+      if(typeof i.src1==='string'&&i.src1.startsWith('_t')) used.add(i.src1);
       if(Array.isArray(i.src2)&&typeof i.src2[0]==='string'&&i.src2[0].startsWith('_t')) used.add(i.src2[0]);
-      if(i.dst&&i.op==='WAIT'&&typeof i.src1==='string') used.add(i.src1);
-      if(i.dst&&i.op==='MOVE') used.add(i.dst);
+      if(typeof i.src2==='string'&&i.src2.startsWith('_t')) used.add(i.src2);
+      // MOVE: dst holds the steps tmp — it is a USE, not a define.
+      if(i.op==='MOVE'&&typeof i.dst==='string'&&i.dst.startsWith('_t')) used.add(i.dst);
+      // STORE: src1 may be a tmp (loop counter init path).
+      if(i.op==='STORE'&&typeof i.src1==='string'&&i.src1.startsWith('_t')) used.add(i.src1);
     }
-    return instrs.filter(i=>!(i.dst&&i.dst.startsWith('_t')&&!used.has(i.dst)));
+    // Only eliminate pure-computation instructions whose result is never read.
+    // Never eliminate STORE, MOVE, WAIT, or any side-effect op.
+    return instrs.filter(i=>{
+      if(!i.dst||!i.dst.startsWith('_t')||used.has(i.dst)) return true;
+      return !['LOAD_CONST','BINOP','UNOP','LOAD_VAR'].includes(i.op);
+    });
   }
 }
 
@@ -900,7 +934,7 @@ class CodeGen {
   }
   _run(instrs){
     const lblMap={};
-    instrs.forEach((ins,idx)=>{ if(ins.op==='LABEL') lblMap[ins.dst]=idx; });
+    instrs.forEach((ins,idx)=>{ if(ins.op==='LABEL') lblMap[ins.src1]=idx; });
     let ip=0;
     while(ip<instrs.length){
       const ins=instrs[ip++];
@@ -916,7 +950,7 @@ class CodeGen {
       else if(ins.op==='WAIT'){ this.actions.push({type:'wait',duration:this._res(ins.src1)}); }
       else if(ins.op==='LOAD_CONST'){ this.env[ins.dst]=ins.src1; }
       else if(ins.op==='LOAD_VAR'){ this.env[ins.dst]=this.env[ins.src1]??0; }
-      else if(ins.op==='STORE'){ this.env[ins.dst]=typeof ins.src1==='number'?ins.src1:this._res(ins.src1); }
+      else if(ins.op==='STORE'){ this.env[ins.dst]=this._res(ins.src1); }
       else if(ins.op==='BINOP'){ const [rT,op]=ins.src2; this.env[ins.dst]=this._applyOp(this._res(ins.src1),this._res(rT),op); }
       else if(ins.op==='UNOP'){ const v=this._res(ins.src1); this.env[ins.dst]=ins.src2==='-'?-v:!v; }
       else if(ins.op==='PRINT'){ console.log('PRINT:', this._res(ins.src1)); }

@@ -255,122 +255,148 @@ class Lexer:
 # ══════════════════════════════════════════
 # Abstract Syntax Tree nodes produced by the Parser.
 
-@dataclass
+# ASTNode is a plain (non-dataclass) base so subclasses can freely
+# place `line` at the end with a default without hitting the
+# "non-default argument follows default argument" restriction.
 class ASTNode:
-    line: int = field(default=0, repr=False)
-
-@dataclass
-class Program(ASTNode):
-    body: List[ASTNode]
+    pass
 
 # ── Declarations ──────────────────────────
 @dataclass
+class Program(ASTNode):
+    body: List[ASTNode]
+    line: int = field(default=0, repr=False)
+
+@dataclass
 class SceneDecl(ASTNode):
     name: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class CharacterDecl(ASTNode):
     name: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class TaskDecl(ASTNode):
     name: str
     body: List[ASTNode]
+    line: int = field(default=0, repr=False)
 
 # ── Statements ────────────────────────────
 @dataclass
 class EnterStmt(ASTNode):
     character: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class ExitStmt(ASTNode):
     character: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class SayStmt(ASTNode):
     character: str
-    text: str         # can be a literal or expr
+    text: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class MoveStmt(ASTNode):
     character: str
     direction: str
     steps: Any        # expr node
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class WaitStmt(ASTNode):
     duration: Any     # expr node
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class EmoteStmt(ASTNode):
     character: str
     emotion: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class DoStmt(ASTNode):
     task: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class LetStmt(ASTNode):
     name: str
     value: Any        # expr node
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class SetStmt(ASTNode):
     name: str
     value: Any
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class PrintStmt(ASTNode):
     value: Any
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class IfStmt(ASTNode):
     condition: Any
     then_body: List[ASTNode]
     else_body: List[ASTNode]
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class LoopStmt(ASTNode):
     count: Any
     body: List[ASTNode]
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class RepeatStmt(ASTNode):
     body: List[ASTNode]
     condition: Any    # repeat UNTIL condition
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class ReturnStmt(ASTNode):
     value: Any
+    line: int = field(default=0, repr=False)
 
 # ── Expressions ───────────────────────────
 @dataclass
 class NumberLit(ASTNode):
     value: float
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class StringLit(ASTNode):
     value: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class VarRef(ASTNode):
     name: str
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class BinOp(ASTNode):
     op: str
     left: Any
     right: Any
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class UnaryOp(ASTNode):
     op: str
     operand: Any
+    line: int = field(default=0, repr=False)
 
 @dataclass
 class CallExpr(ASTNode):
     task: str
+    line: int = field(default=0, repr=False)
 
 
 # ══════════════════════════════════════════
@@ -727,6 +753,7 @@ class SemanticAnalyser:
         self.scene: Optional[str]        = None
         self.warnings:  List[str]        = []
         self.current_task: Optional[str] = None
+        self.in_task_body: bool          = False  # skip on_stage checks inside tasks
 
     def analyse(self, program: Program):
         # Pre-pass: collect all task names so forward-calls are ok
@@ -755,27 +782,43 @@ class SemanticAnalyser:
         self.characters[n.name] = {"on_stage": False}
 
     def _visit_TaskDecl(self, n: TaskDecl):
-        saved = self.current_task
-        self.current_task = n.name
+        # Tasks execute at call-time, not definition-time, so we cannot know
+        # which characters are on stage when the task runs. We still check
+        # declarations and variable usage, but skip on_stage enforcement.
+        saved_task    = self.current_task
+        saved_in_task = self.in_task_body
+        self.current_task  = n.name
+        self.in_task_body  = True
         for stmt in n.body:
             self._visit(stmt)
-        self.current_task = saved
+        self.current_task  = saved_task
+        self.in_task_body  = saved_in_task
 
     def _visit_EnterStmt(self, n: EnterStmt):
         self._require_declared(n.character, n.line)
-        if self.characters[n.character]["on_stage"]:
-            self.warnings.append(f"L{n.line}: '{n.character}' is already on stage")
-        self.characters[n.character]["on_stage"] = True
+        if not self.in_task_body:
+            if self.characters[n.character]["on_stage"]:
+                self.warnings.append(f"L{n.line}: '{n.character}' is already on stage")
+            self.characters[n.character]["on_stage"] = True
 
     def _visit_ExitStmt(self, n: ExitStmt):
-        self._require_on_stage(n.character, n.line)
-        self.characters[n.character]["on_stage"] = False
+        self._require_declared(n.character, n.line)
+        if not self.in_task_body:
+            if not self.characters[n.character]["on_stage"]:
+                self.warnings.append(f"L{n.line}: '{n.character}' exits but wasn't on stage")
+            self.characters[n.character]["on_stage"] = False
 
     def _visit_SayStmt(self, n: SayStmt):
-        self._require_on_stage(n.character, n.line)
+        if self.in_task_body:
+            self._require_declared(n.character, n.line)
+        else:
+            self._require_on_stage(n.character, n.line)
 
     def _visit_MoveStmt(self, n: MoveStmt):
-        self._require_on_stage(n.character, n.line)
+        if self.in_task_body:
+            self._require_declared(n.character, n.line)
+        else:
+            self._require_on_stage(n.character, n.line)
         if n.direction not in self.VALID_DIRECTIONS:
             raise SemanticError(f"Invalid direction '{n.direction}'", n.line)
         self._check_expr(n.steps, n.line)
@@ -784,7 +827,10 @@ class SemanticAnalyser:
         self._check_expr(n.duration, n.line)
 
     def _visit_EmoteStmt(self, n: EmoteStmt):
-        self._require_on_stage(n.character, n.line)
+        if self.in_task_body:
+            self._require_declared(n.character, n.line)
+        else:
+            self._require_on_stage(n.character, n.line)
         if n.emotion not in self.VALID_EMOTIONS:
             self.warnings.append(f"L{n.line}: Unknown emotion '{n.emotion}'. Known: {self.VALID_EMOTIONS}")
 
@@ -983,19 +1029,26 @@ class IRGenerator:
     def _lower_LoopStmt(self, n: LoopStmt):
         count_tmp = self._lower_expr(n.count)
         iter_var  = self.fresh_tmp()
+        zero_tmp  = self.fresh_tmp()
+        one_tmp   = self.fresh_tmp()
         loop_lbl  = self.fresh_label()
         end_lbl   = self.fresh_label()
-        self.emit("STORE", dst=iter_var, src1=0)
-        self.emit("LABEL", src1=loop_lbl)
+        # Always use LOAD_CONST so iter_var is initialised via a proper tmp.
+        # Bare int literals as src1 to STORE confuse DSE and _resolve.
+        self.emit("LOAD_CONST", dst=zero_tmp, src1=0.0)
+        self.emit("STORE",      dst=iter_var, src1=zero_tmp)
+        self.emit("LABEL",      src1=loop_lbl)
         cmp_tmp = self.fresh_tmp()
-        self.emit("BINOP", dst=cmp_tmp, src1=iter_var, src2=(count_tmp, "<"))
-        self.emit("JMP_FALSE", src1=cmp_tmp, dst=end_lbl)
-        for s in n.body: self._lower(s)
+        self.emit("BINOP",      dst=cmp_tmp, src1=iter_var, src2=(count_tmp, "<"))
+        self.emit("JMP_FALSE",  src1=cmp_tmp, dst=end_lbl)
+        for s in n.body:
+            self._lower(s)
         inc_tmp = self.fresh_tmp()
-        self.emit("BINOP", dst=inc_tmp, src1=iter_var, src2=(1, "+"))
-        self.emit("STORE", dst=iter_var, src1=inc_tmp)
-        self.emit("JMP", dst=loop_lbl)
-        self.emit("LABEL", src1=end_lbl)
+        self.emit("LOAD_CONST", dst=one_tmp, src1=1.0)
+        self.emit("BINOP",      dst=inc_tmp, src1=iter_var, src2=(one_tmp, "+"))
+        self.emit("STORE",      dst=iter_var, src1=inc_tmp)
+        self.emit("JMP",        dst=loop_lbl)
+        self.emit("LABEL",      src1=end_lbl)
 
     def _lower_RepeatStmt(self, n: RepeatStmt):
         loop_lbl = self.fresh_label()
@@ -1117,22 +1170,38 @@ class IROptimizer:
 
     # Pass 2: Dead Store Elimination
     def _dead_store_elim(self, instrs: List[IRInstr]) -> List[IRInstr]:
-        # Collect all tmps that are used as src
+        # Collect all tmps used as operands (sources).
+        # MOVE is special: its dst field holds the steps tmp (it is a USE, not a define).
+        # WAIT's src1 is always a use.
+        # Loop counter tmps appear in BINOP src2 tuples.
         used: set = set()
         for instr in instrs:
-            if instr.src1 and isinstance(instr.src1, str) and instr.src1.startswith("_t"):
+            # src1 uses
+            if isinstance(instr.src1, str) and instr.src1.startswith("_t"):
                 used.add(instr.src1)
-            if instr.src2 and isinstance(instr.src2, tuple):
+            # src2 uses — plain string or (tmp, op) tuple
+            if isinstance(instr.src2, tuple):
                 tmp, _ = instr.src2
                 if isinstance(tmp, str) and tmp.startswith("_t"):
                     used.add(tmp)
-            if instr.src2 and isinstance(instr.src2, str) and instr.src2.startswith("_t"):
+            elif isinstance(instr.src2, str) and instr.src2.startswith("_t"):
                 used.add(instr.src2)
+            # MOVE: dst is actually a USE (it holds the steps tmp)
+            if instr.op == "MOVE" and isinstance(instr.dst, str) and instr.dst.startswith("_t"):
+                used.add(instr.dst)
+            # STORE: src1 may be a tmp name (loop counter init path)
+            if instr.op == "STORE" and isinstance(instr.src1, str) and instr.src1.startswith("_t"):
+                used.add(instr.src1)
 
         result = []
         for instr in instrs:
-            if instr.dst and instr.dst.startswith("_t") and instr.dst not in used:
-                continue  # dead store — skip
+            # Only eliminate a STORE/LOAD_CONST/BINOP whose dst tmp is never read.
+            # Never eliminate MOVE (its dst is a use), WAIT, or any side-effect op.
+            if (instr.op in ("LOAD_CONST", "BINOP", "UNOP", "LOAD_VAR")
+                    and instr.dst
+                    and instr.dst.startswith("_t")
+                    and instr.dst not in used):
+                continue  # genuinely dead — skip
             result.append(instr)
         return result
 
@@ -1149,10 +1218,8 @@ class IROptimizer:
                 i += 2
                 continue
 
-            if cur.op == "LOAD_CONST" and nxt and nxt.op == "MOVE" and nxt.dst == cur.dst:
-                result.append(IRInstr("MOVE_CONST", src1=nxt.src1, src2=nxt.src2, dst=str(cur.src1)))
-                i += 2
-                continue
+            # (MOVE_CONST fusion removed — MOVE dst encodes the steps tmp,
+            #  fusing it here would destroy the who/dir/steps mapping.)
 
             result.append(cur)
             i += 1
@@ -1255,13 +1322,11 @@ class CodeGenerator:
                 self.actions.append({"type": "say", "who": ins.src1, "text": ins.src2})
                 print(f"  💬 SAY: {ins.src1} → \"{ins.src2}\"")
 
-            elif ins.op in ("MOVE", "MOVE_CONST"):
-                if ins.op == "MOVE_CONST":
-                    steps = int(float(ins.dst))
-                    who, direction = ins.src1, ins.src2
-                else:
-                    steps = int(self._resolve(ins.dst))
-                    who, direction = ins.src1, ins.src2
+            elif ins.op == "MOVE":
+                # Encoding: src1=character  src2=direction  dst=steps_tmp
+                who       = ins.src1
+                direction = ins.src2
+                steps     = int(self._resolve(ins.dst))
                 self.actions.append({"type": "move", "who": who, "dir": direction, "steps": steps})
                 print(f"  🚶 MOVE: {who} {direction} {steps}")
 
